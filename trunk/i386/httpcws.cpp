@@ -1,3 +1,16 @@
+/*
+ *  HTTPCWS - HTTPCWS is an Chinese Word Segmentation System Based on the HTTP protocol.
+ *
+ *       http://code.google.com/p/httpcws/
+ *
+ *  Copyright 2009 Zhang Yan.  All rights reserved.
+ *
+ *  Use and distribution licensed under the BSD license. 
+ *
+ *  Authors:
+ *      Zhang Yan <net@s135.com> http://blog.s135.com
+ */
+
 extern "C" {
 #include <sys/types.h>
 #include <sys/time.h>
@@ -28,7 +41,7 @@ extern "C" {
 #include <event.h>
 #include <evhttp.h>
 
-#define VERSION "1.0"
+#define VERSION "1.0.0"
 }
 #include "ICTCLAS/ICTCLAS30.h"
 
@@ -97,7 +110,7 @@ char *urldecode(char *in)
 
 static void show_help(void)
 {
-	char *b = "HTTPCWS v" VERSION " written by Zhang Yan (KingSoft Game)\n"
+	char *b = "HTTPCWS v" VERSION " written by Zhang Yan (http://blog.s135.com)\n"
 		  "\n"
 		   "-l <ip_addr>  interface to listen on, default is 0.0.0.0\n"
 		   "-p <num>      TCP port number to listen on (default: 1985)\n"
@@ -128,13 +141,17 @@ void httpcws_handler(struct evhttp_request *req, void *arg)
 		const char *httpcws_output_tmp = NULL;
 		char *httpcws_output_words = "\0";
 		if (tcsql_input_postbuffer != NULL) {
-			char *decode_uri = evhttp_decode_uri(tcsql_input_postbuffer);
+			char *tcsql_input_postbuffer_tmp = strdup(tcsql_input_postbuffer);
+			char *decode_uri = urldecode(tcsql_input_postbuffer_tmp);
+			free(tcsql_input_postbuffer_tmp);
 			httpcws_output_tmp = ICTCLAS_ParagraphProcess(decode_uri, 0);
 			free(decode_uri);
 			httpcws_output_words = strdup(httpcws_output_tmp);
 			trim (httpcws_output_words);
 		} else if (httpcws_input_words != NULL) {
-			char *decode_uri = evhttp_decode_uri(httpcws_input_words);
+			char *httpcws_input_words_tmp = strdup(httpcws_input_words);
+			char *decode_uri = urldecode(httpcws_input_words_tmp);
+			free(httpcws_input_words_tmp);
 			httpcws_output_tmp = ICTCLAS_ParagraphProcess(decode_uri, 0);
 			free(decode_uri);
 			httpcws_output_words = strdup(httpcws_output_tmp);
@@ -200,35 +217,24 @@ int main(int argc, char **argv)
 	/* 初始化分词组件 */
 	if(!ICTCLAS_Init(httpcws_settings_datapath))
 	{
-	printf("%s\n", httpcws_settings_datapath);
+		printf("%s\n", httpcws_settings_datapath);
 		fprintf(stderr, "ERROR: Count not open the Chinese dictionary!\n\n");		
 		exit(1);
 	}
 	ICTCLAS_SetPOSmap(ICT_POS_MAP_SECOND);
 
-	fprintf(stderr, "Loading Chinese dictionary 'httpcws_dict.txt' into memory, please waitting ......\n");	
-	int nCount = ICTCLAS_ImportUserDict("dict/httpcws_dict.txt");
+	fprintf(stderr, "Loading Chinese dictionary 'httpcws_dict.txt' into memory, please waitting ......\n");
+	char *httpcws_settings_dataname = (char *)malloc(1024);
+	memset (httpcws_settings_dataname, '\0', 1024);
+	sprintf(httpcws_settings_dataname, "%s/httpcws_dict.txt", httpcws_settings_datapath);
+	int nCount = ICTCLAS_ImportUserDict(httpcws_settings_dataname);
 	ICTCLAS_SaveTheUsrDic();
+	free(httpcws_settings_dataname);
 	printf("OK! %d words has loaded into memory.\n\n", nCount);
 	printf("HTTPCWS Server running on %s:%d\n", httpcws_settings_listen, httpcws_settings_port);
-		
-	process_restart:
-	int fd[2];
-	pipe(fd);
-	
-	//signal(SIGCHLD,SIG_IGN);
-	
+
 	/* 如果加了-d参数，以守护进程运行 */
 	if (httpcws_settings_daemon == true){
-		pid_t master_pid;
-		master_pid = fork();
-		if (master_pid < 0) {
-			exit(EXIT_FAILURE);
-		}
-		if (master_pid > 0) {
-        exit(EXIT_SUCCESS);
-		}	
-	
         pid_t pid;
 
         /* Fork off the parent process */       
@@ -236,51 +242,29 @@ int main(int argc, char **argv)
         if (pid < 0) {
                 exit(EXIT_FAILURE);
         }
-        else if (pid == 0) {
-			/* 通过管道发送子进程的pid号给父进程 */
-			char c_pid[10];
-			sprintf(c_pid, "%d", getpid());
-			close(fd[0]);
-			write(fd[1], c_pid, strlen(c_pid));
-			wait(NULL);			
-		
-			/* 请求处理部分 */
-			struct evhttp *httpd;
-
-			event_init();
-			httpd = evhttp_start(httpcws_settings_listen, httpcws_settings_port);
-			evhttp_set_timeout(httpd, httpcws_settings_timeout);
-
-			/* Set a callback for requests to "/specific". */
-			/* evhttp_set_cb(httpd, "/select", select_handler, NULL); */
-
-			/* Set a callback for all other requests. */
-			evhttp_set_gencb(httpd, httpcws_handler, NULL);
-
-			event_dispatch();
-
-			/* Not reached in this code as it is now. */
-			evhttp_free(httpd);
-			exit(EXIT_SUCCESS);
+        /* If we got a good PID, then
+           we can exit the parent process. */
+        if (pid > 0) {
+                exit(EXIT_SUCCESS);
         }
 	}
 	
-	sleep(3000); /* 间隔300秒重启一次子进程 */
-	int c_n;
-	char c_mpid[10];
-	close(fd[1]);
-	c_n = read(fd[0], c_mpid, 10);
-	if (strcmp(c_mpid, "") != 0) {
-		kill(atoi(c_mpid), SIGKILL);
-		wait(NULL);
-	}
-	memset(c_mpid, '\0', 10);
-	goto process_restart;
+	/* 请求处理部分 */
+	struct evhttp *httpd;
+
+	event_init();
+	httpd = evhttp_start(httpcws_settings_listen, httpcws_settings_port);
+	evhttp_set_timeout(httpd, httpcws_settings_timeout);
+
+	/* Set a callback for all other requests. */
+	evhttp_set_gencb(httpd, httpcws_handler, NULL);
+
+	event_dispatch();
+
+	/* Not reached in this code as it is now. */
+	evhttp_free(httpd);
 
     return 0;
 }
-
-
-
 
 
