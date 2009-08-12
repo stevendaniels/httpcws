@@ -141,7 +141,9 @@ void httpcws_handler(struct evhttp_request *req, void *arg)
 		const char *httpcws_output_tmp = NULL;
 		char *httpcws_output_words = "\0";
 		if (tcsql_input_postbuffer != NULL) {
-			char *tcsql_input_postbuffer_tmp = strdup(tcsql_input_postbuffer);
+			char *tcsql_input_postbuffer_tmp = (char *) malloc(EVBUFFER_LENGTH(req->input_buffer)+1);
+			memset (tcsql_input_postbuffer_tmp, '\0', EVBUFFER_LENGTH(req->input_buffer)+1);
+			strncpy(tcsql_input_postbuffer_tmp, tcsql_input_postbuffer, EVBUFFER_LENGTH(req->input_buffer));
 			char *decode_uri = urldecode(tcsql_input_postbuffer_tmp);
 			free(tcsql_input_postbuffer_tmp);
 			httpcws_output_tmp = ICTCLAS_ParagraphProcess(decode_uri, 0);
@@ -183,7 +185,7 @@ int main(int argc, char **argv)
 	int httpcws_settings_timeout = 120; /* µ•Œª£∫√Î */
 
     /* process arguments */
-    while ((c = getopt(argc, argv, "l:p:x:t:dh:")) != -1) {
+    while ((c = getopt(argc, argv, "l:p:x:t:dh")) != -1) {
         switch (c) {
         case 'l':
             httpcws_settings_listen = strdup(optarg);
