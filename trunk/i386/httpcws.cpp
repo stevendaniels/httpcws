@@ -3,7 +3,7 @@
  *
  *       http://code.google.com/p/httpcws/
  *
- *  Copyright 2009 Zhang Yan.  All rights reserved.
+ *  Copyright 2009-2010 Zhang Yan.  All rights reserved.
  *
  *  Use and distribution licensed under the BSD license. 
  *
@@ -41,7 +41,7 @@ extern "C" {
 #include <event.h>
 #include <evhttp.h>
 
-#define VERSION "1.0.0"
+#define VERSION "1.1.0"
 }
 #include "ICTCLAS/ICTCLAS30.h"
 
@@ -109,7 +109,7 @@ char *urldecode(char *in)
 }
 
 static void show_help(void)
-{
+{ 
 	char *b = "HTTPCWS v" VERSION " written by Zhang Yan (http://blog.s135.com)\n"
 		  "\n"
 		   "-l <ip_addr>  interface to listen on, default is 0.0.0.0\n"
@@ -137,7 +137,15 @@ void httpcws_handler(struct evhttp_request *req, void *arg)
 		
 		/* 接收GET表单参数 */
 		const char *httpcws_input_words = evhttp_find_header (&httpcws_http_query, "w");
+		const char *httpcws_input_tag = evhttp_find_header (&httpcws_http_query, "t");
 
+		int httpcws_input_tagint = 0; /* 默认关闭词性标注 */
+		if (httpcws_input_tag != NULL) {
+			if (strcmp(httpcws_input_tag, "1") == 0) {
+				httpcws_input_tagint = 1; /* 开启词性标注 */
+			}
+		}
+		
 		const char *httpcws_output_tmp = NULL;
 		char *httpcws_output_words = "\0";
 		if (tcsql_input_postbuffer != NULL) {
@@ -146,7 +154,7 @@ void httpcws_handler(struct evhttp_request *req, void *arg)
 			strncpy(tcsql_input_postbuffer_tmp, tcsql_input_postbuffer, EVBUFFER_LENGTH(req->input_buffer));
 			char *decode_uri = urldecode(tcsql_input_postbuffer_tmp);
 			free(tcsql_input_postbuffer_tmp);
-			httpcws_output_tmp = ICTCLAS_ParagraphProcess(decode_uri, 0);
+			httpcws_output_tmp = ICTCLAS_ParagraphProcess(decode_uri, httpcws_input_tagint);
 			free(decode_uri);
 			httpcws_output_words = strdup(httpcws_output_tmp);
 			trim (httpcws_output_words);
@@ -154,7 +162,7 @@ void httpcws_handler(struct evhttp_request *req, void *arg)
 			char *httpcws_input_words_tmp = strdup(httpcws_input_words);
 			char *decode_uri = urldecode(httpcws_input_words_tmp);
 			free(httpcws_input_words_tmp);
-			httpcws_output_tmp = ICTCLAS_ParagraphProcess(decode_uri, 0);
+			httpcws_output_tmp = ICTCLAS_ParagraphProcess(decode_uri, httpcws_input_tagint);
 			free(decode_uri);
 			httpcws_output_words = strdup(httpcws_output_tmp);
 			trim (httpcws_output_words);
@@ -163,9 +171,9 @@ void httpcws_handler(struct evhttp_request *req, void *arg)
 		}
 		
 		/* 输出内容给客户端 */
-		evhttp_add_header(req->output_headers, "Server", "HTTPCWS/1.0.0");
+		evhttp_add_header(req->output_headers, "Server", "HTTPCWS/1.1.0");
 		evhttp_add_header(req->output_headers, "Content-Type", "text/plain; charset=GB2312");
-		evhttp_add_header(req->output_headers, "Connection", "close");
+		evhttp_add_header(req->output_headers, "Keep-Alive", "120");
 		evbuffer_add_printf(buf, "%s", httpcws_output_words);
         evhttp_send_reply(req, HTTP_OK, "OK", buf);
 		
@@ -230,7 +238,9 @@ int main(int argc, char **argv)
 	memset (httpcws_settings_dataname, '\0', 1024);
 	sprintf(httpcws_settings_dataname, "%s/httpcws_dict.txt", httpcws_settings_datapath);
 	int nCount = ICTCLAS_ImportUserDict(httpcws_settings_dataname);
-	ICTCLAS_SaveTheUsrDic();
+	if (nCount > 0) {
+		ICTCLAS_SaveTheUsrDic();
+	}
 	free(httpcws_settings_dataname);
 	printf("OK! %d words has loaded into memory.\n\n", nCount);
 	printf("HTTPCWS Server running on %s:%d\n", httpcws_settings_listen, httpcws_settings_port);
